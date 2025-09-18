@@ -232,8 +232,8 @@ namespace max30100 {
                   else if (acSqRatio > 50) index = Math.floor(acSqRatio) - 50
                   if (index < 0) index = 0
                   if (index >= SpO2Calculator.spO2LUT.length) index = SpO2Calculator.spO2LUT.length - 1
-                  this.spO2 = SpO2Calculator.spO2LUT[index]
                   this.reset()
+                  this.spO2 = SpO2Calculator.spO2LUT[index]
               }
           }
       }
