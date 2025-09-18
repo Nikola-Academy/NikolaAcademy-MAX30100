@@ -253,6 +253,8 @@ namespace max30100 {
   let spO2calculator = new SpO2Calculator()
   let heartRateBpm = 0
   let spO2Percent = 0
+  let lastFiltered = 0
+  let lastThreshold = 0
 
   function resetProcessing() {
       beatDetector = new BeatDetector()
@@ -313,6 +315,8 @@ namespace max30100 {
                           const redAC = redDCRemover.step(s.red)
                           const filtered = lpf.step(-irAC)
                           const beat = beatDetector.addSample(filtered)
+                          lastFiltered = filtered
+                          lastThreshold = beatDetector.getCurrentThreshold()
                           const rate = beatDetector.getRate()
                           if (rate > 0) heartRateBpm = rate
                           spO2calculator.update(irAC, redAC, beat)
@@ -337,6 +341,11 @@ namespace max30100 {
 
   //% blockId=max30100_getSpO2 block="MAX30100 SpO2 (%)" weight=60
   export function getSpO2(): number { return spO2Percent }
+
+  //% blockId=max30100_getPulseDebug block="MAX30100 pulse debug" blockHidden=true
+  export function getPulseDebug(): { filtered: number, threshold: number } {
+      return { filtered: lastFiltered, threshold: lastThreshold }
+  }
 
   //% blockId=max30100_getIds block="MAX30100 get IDs" blockHidden=true
   //% weight=10
