@@ -1,0 +1,13 @@
+{
+  "name": "pxt-max30100",
+  "version": "0.0.1",
+  "description": "MAX30100 Pulse Oximeter for micro:bit (MakeCode)",
+  "files": [
+    "README.md",
+    "max30100.ts"
+  ],
+  "public": true,
+  "dependencies": {
+    "core": "*"
+  }
+}
