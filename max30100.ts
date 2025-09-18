@@ -43,11 +43,10 @@ namespace max30100 {
       readReg(REG_INT_STATUS)
   }
 
-  function waitPowerReady(timeoutMs: number): boolean {
+  function waitResetClear(timeoutMs: number): boolean {
       const start = control.millis()
       while (control.millis() - start < timeoutMs) {
-          // PWR_RDY bit is bit0 of INT STATUS
-          if (readReg(REG_INT_STATUS) & 0x01) return true
+          if ((readReg(REG_MODE_CONFIG) & 0x40) === 0) return true
           basic.pause(1)
       }
       return false
@@ -79,6 +78,19 @@ namespace max30100 {
       return out
   }
 
+  function primeSamples(maxWaitMs: number) {
+      const start = control.millis()
+      while (control.millis() - start < maxWaitMs) {
+          const n = samplesAvailable()
+          if (n > 0) {
+              // read and drop once to advance RD_PTR and unblock stream
+              readFIFOBurst(n)
+              return
+          }
+          basic.pause(1)
+      }
+  }
+
   let _onSample: (ir: number, red: number) => void = null
   let _running = false
 
@@ -90,7 +102,7 @@ namespace max30100 {
   export function begin(rate: SampleRate = SampleRate.SR100, pw: PulseWidth = PulseWidth.PW1600uS, ir: LedCurrent = LedCurrent.mA50, red: LedCurrent = LedCurrent.mA50) {
       writeReg(REG_MODE_CONFIG, 0x40) // reset
       basic.pause(10)
-      waitPowerReady(100)
+      waitResetClear(50)
       writeReg(REG_INT_ENABLE, 0x00) // disable all interrupts
       clearInterrupts()
       resetFifo()
@@ -102,6 +114,8 @@ namespace max30100 {
       // Datasheet/Arduino mapping: upper nibble = RED, lower nibble = IR
       writeReg(REG_LED_CONFIG, ((red & 0x0F) << 4) | (ir & 0x0F))
       writeReg(REG_MODE_CONFIG, MODE_SPO2)
+      // Prime the FIFO to shorten time-to-first-sample
+      primeSamples(20)
   }
 
   //% blockId=max30100_onSample block="on MAX30100 sample"
