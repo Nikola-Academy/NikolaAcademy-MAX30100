@@ -19,6 +19,18 @@ namespace max30100 {
   const MODE_HR = 0x02
   const MODE_SPO2 = 0x03
 
+  // Processing constants (mirroring Arduino library)
+  const DC_REMOVER_ALPHA = 0.95
+  const BEATDETECTOR_INIT_HOLDOFF = 2000
+  const BEATDETECTOR_MASKING_HOLDOFF = 200
+  const BEATDETECTOR_BPFILTER_ALPHA = 0.6
+  const BEATDETECTOR_MIN_THRESHOLD = 20
+  const BEATDETECTOR_MAX_THRESHOLD = 800
+  const BEATDETECTOR_STEP_RESILIENCY = 30
+  const BEATDETECTOR_THRESHOLD_FALLOFF_TARGET = 0.3
+  const BEATDETECTOR_THRESHOLD_DECAY_FACTOR = 0.99
+  const BEATDETECTOR_SAMPLES_PERIOD = 10
+
   export enum SampleRate {
       SR50 = 0x00, SR100 = 0x01, SR167 = 0x02, SR200 = 0x03, SR400 = 0x04, SR600 = 0x05, SR800 = 0x06, SR1000 = 0x07
   }
@@ -87,6 +99,171 @@ namespace max30100 {
   let _onSample: (ir: number, red: number) => void = null
   let _running = false
   let _lastSampleMs = 0
+  let _onBeat: () => void = null
+
+  // Processing components and outputs
+  class FilterBuLp1 {
+      private v0: number
+      private v1: number
+      constructor() { this.v0 = 0; this.v1 = 0 }
+      step(x: number): number {
+          this.v0 = this.v1
+          this.v1 = (2.452372752527856026e-1 * x) + (0.50952544949442879485 * this.v0)
+          return this.v0 + this.v1
+      }
+  }
+
+  class DCRemover {
+      private alpha: number
+      private dcw: number
+      constructor(alpha: number) { this.alpha = alpha; this.dcw = 0 }
+      step(x: number): number {
+          const olddcw = this.dcw
+          this.dcw = x + this.alpha * this.dcw
+          return this.dcw - olddcw
+      }
+      getDCW(): number { return this.dcw }
+  }
+
+  enum BeatDetectorState {
+      INIT, WAITING, FOLLOWING_SLOPE, MAYBE_DETECTED, MASKING
+  }
+
+  class BeatDetector {
+      private state: BeatDetectorState
+      private threshold: number
+      private beatPeriod: number
+      private lastMaxValue: number
+      private tsLastBeat: number
+      constructor() {
+          this.state = BeatDetectorState.INIT
+          this.threshold = BEATDETECTOR_MIN_THRESHOLD
+          this.beatPeriod = 0
+          this.lastMaxValue = 0
+          this.tsLastBeat = 0
+      }
+      addSample(sample: number): boolean { return this.checkForBeat(sample) }
+      getRate(): number { return this.beatPeriod !== 0 ? (1 / this.beatPeriod) * 1000 * 60 : 0 }
+      getCurrentThreshold(): number { return this.threshold }
+      private checkForBeat(sample: number): boolean {
+          let beatDetected = false
+          switch (this.state) {
+              case BeatDetectorState.INIT:
+                  if (control.millis() > BEATDETECTOR_INIT_HOLDOFF) {
+                      this.state = BeatDetectorState.WAITING
+                  }
+                  break
+              case BeatDetectorState.WAITING:
+                  if (sample > this.threshold) {
+                      this.threshold = Math.min(sample, BEATDETECTOR_MAX_THRESHOLD)
+                      this.state = BeatDetectorState.FOLLOWING_SLOPE
+                  }
+                  if (control.millis() - this.tsLastBeat > 2000) {
+                      this.beatPeriod = 0
+                      this.lastMaxValue = 0
+                  }
+                  this.decreaseThreshold()
+                  break
+              case BeatDetectorState.FOLLOWING_SLOPE:
+                  if (sample < this.threshold) {
+                      this.state = BeatDetectorState.MAYBE_DETECTED
+                  } else {
+                      this.threshold = Math.min(sample, BEATDETECTOR_MAX_THRESHOLD)
+                  }
+                  break
+              case BeatDetectorState.MAYBE_DETECTED:
+                  if (sample + BEATDETECTOR_STEP_RESILIENCY < this.threshold) {
+                      beatDetected = true
+                      this.lastMaxValue = sample
+                      this.state = BeatDetectorState.MASKING
+                      const delta = control.millis() - this.tsLastBeat
+                      if (delta) {
+                          this.beatPeriod = BEATDETECTOR_BPFILTER_ALPHA * delta + (1 - BEATDETECTOR_BPFILTER_ALPHA) * this.beatPeriod
+                      }
+                      this.tsLastBeat = control.millis()
+                  } else {
+                      this.state = BeatDetectorState.FOLLOWING_SLOPE
+                  }
+                  break
+              case BeatDetectorState.MASKING:
+                  if (control.millis() - this.tsLastBeat > BEATDETECTOR_MASKING_HOLDOFF) {
+                      this.state = BeatDetectorState.WAITING
+                  }
+                  this.decreaseThreshold()
+                  break
+          }
+          return beatDetected
+      }
+      private decreaseThreshold() {
+          if (this.lastMaxValue > 0 && this.beatPeriod > 0) {
+              this.threshold -= this.lastMaxValue * (1 - BEATDETECTOR_THRESHOLD_FALLOFF_TARGET) / (this.beatPeriod / BEATDETECTOR_SAMPLES_PERIOD)
+          } else {
+              this.threshold *= BEATDETECTOR_THRESHOLD_DECAY_FACTOR
+          }
+          if (this.threshold < BEATDETECTOR_MIN_THRESHOLD) this.threshold = BEATDETECTOR_MIN_THRESHOLD
+      }
+  }
+
+  class SpO2Calculator {
+      private static spO2LUT: number[] = [100,100,100,100,99,99,99,99,99,99,98,98,98,98,
+          98,97,97,97,97,97,97,96,96,96,96,96,96,95,95,95,95,95,95,94,94,94,94,94,93,93,93,93,93]
+      private irACValueSqSum: number
+      private redACValueSqSum: number
+      private beatsDetectedNum: number
+      private samplesRecorded: number
+      private spO2: number
+      constructor() { this.reset() }
+      update(irACValue: number, redACValue: number, beatDetected: boolean) {
+          this.irACValueSqSum += irACValue * irACValue
+          this.redACValueSqSum += redACValue * redACValue
+          this.samplesRecorded++
+          if (beatDetected) {
+              this.beatsDetectedNum++
+              if (this.beatsDetectedNum === 3) {
+                  const irMeanSq = this.irACValueSqSum / this.samplesRecorded
+                  const redMeanSq = this.redACValueSqSum / this.samplesRecorded
+                  let acSqRatio = 0
+                  if (irMeanSq > 0 && redMeanSq > 0) {
+                      acSqRatio = 100.0 * Math.log(redMeanSq) / Math.log(irMeanSq)
+                  }
+                  let index = 0
+                  if (acSqRatio > 66) index = Math.floor(acSqRatio) - 66
+                  else if (acSqRatio > 50) index = Math.floor(acSqRatio) - 50
+                  if (index < 0) index = 0
+                  if (index >= SpO2Calculator.spO2LUT.length) index = SpO2Calculator.spO2LUT.length - 1
+                  this.spO2 = SpO2Calculator.spO2LUT[index]
+                  this.reset()
+              }
+          }
+      }
+      reset() {
+          this.irACValueSqSum = 0
+          this.redACValueSqSum = 0
+          this.beatsDetectedNum = 0
+          this.samplesRecorded = 0
+          this.spO2 = 0
+      }
+      getSpO2(): number { return this.spO2 }
+  }
+
+  let beatDetector = new BeatDetector()
+  let irDCRemover = new DCRemover(DC_REMOVER_ALPHA)
+  let redDCRemover = new DCRemover(DC_REMOVER_ALPHA)
+  let lpf = new FilterBuLp1()
+  let spO2calculator = new SpO2Calculator()
+  let heartRateBpm = 0
+  let spO2Percent = 0
+
+  function resetProcessing() {
+      beatDetector = new BeatDetector()
+      irDCRemover = new DCRemover(DC_REMOVER_ALPHA)
+      redDCRemover = new DCRemover(DC_REMOVER_ALPHA)
+      lpf = new FilterBuLp1()
+      spO2calculator = new SpO2Calculator()
+      heartRateBpm = 0
+      spO2Percent = 0
+  }
+
 
   //% blockId=max30100_begin block="MAX30100 begin at %rate|Hz, pulse %pw|, IR %ir|, RED %red"
   //% rate.defl=SampleRate.SR100
@@ -110,6 +287,7 @@ namespace max30100 {
       writeReg(REG_LED_CONFIG, ((red & 0x0F) << 4) | (ir & 0x0F))
       writeReg(REG_MODE_CONFIG, MODE_SPO2)
       _lastSampleMs = control.millis()
+      resetProcessing()
   }
 
   //% blockId=max30100_start block="start MAX30100" weight=100
@@ -130,6 +308,17 @@ namespace max30100 {
                       for (let i = 0; i < samples.length; i++) {
                           const s = samples[i]
                           _lastSampleMs = control.millis()
+                          // Processing chain similar to Arduino PulseOximeter
+                          const irAC = irDCRemover.step(s.ir)
+                          const redAC = redDCRemover.step(s.red)
+                          const filtered = lpf.step(-irAC)
+                          const beat = beatDetector.addSample(filtered)
+                          const rate = beatDetector.getRate()
+                          if (rate > 0) heartRateBpm = rate
+                          spO2calculator.update(irAC, redAC, beat)
+                          const spo2 = spO2calculator.getSpO2()
+                          if (spo2 > 0) spO2Percent = spo2
+                          if (beat && _onBeat) _onBeat()
                           if (_onSample) _onSample(s.ir, s.red)
                       }
                   } else {
@@ -139,6 +328,15 @@ namespace max30100 {
           })
       }
   }
+
+  //% blockId=max30100_onBeat block="on MAX30100 beat" weight=85
+  export function onBeatDetected(handler: () => void) { _onBeat = handler }
+
+  //% blockId=max30100_getHeartRate block="MAX30100 heart rate (bpm)" weight=70
+  export function getHeartRate(): number { return Math.round(heartRateBpm) }
+
+  //% blockId=max30100_getSpO2 block="MAX30100 SpO2 (%)" weight=60
+  export function getSpO2(): number { return spO2Percent }
 
   //% blockId=max30100_getIds block="MAX30100 get IDs" blockHidden=true
   //% weight=10
