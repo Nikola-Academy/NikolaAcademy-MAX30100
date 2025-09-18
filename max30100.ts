@@ -303,7 +303,7 @@ namespace max30100 {
       begin(SampleRate.SR100, PulseWidth.PW1600uS, LedCurrent.mA50, LedCurrent.mA27_1)
   }
 
-  //% blockId=max30100_onSample block="on MAX30100 sample ir %ir red %red" draggableParameters="reporter" weight=90
+  //% blockId=max30100_onSample block="Get MAX30100 Raw Values %ir %red" draggableParameters="reporter" weight=90
   export function onSample(handler: (ir: number, red: number) => void) {
       _onSample = handler
       startBackground()
@@ -345,13 +345,13 @@ namespace max30100 {
       })
   }
 
-  //% blockId=max30100_onBeat block="on MAX30100 beat" weight=85
+  //% blockId=max30100_onBeat block="On Heart beat" weight=96
   export function onBeatDetected(handler: () => void) { _onBeat = handler }
 
-  //% blockId=max30100_getHeartRate block="MAX30100 heart rate (bpm)" weight=70
+  //% blockId=max30100_getHeartRate block="Heart rate (bpm)" weight=98
   export function getHeartRate(): number { return Math.round(heartRateBpm) }
 
-  //% blockId=max30100_getSpO2 block="MAX30100 SpO2 (%)" weight=60
+  //% blockId=max30100_getSpO2 block="SpO2 (percent)" weight=97
   export function getSpO2(): number { return spO2Percent }
 
   //% blockId=max30100_getPulseDebug block="MAX30100 pulse debug" blockHidden=true
@@ -359,18 +359,18 @@ namespace max30100 {
       return { filtered: lastFiltered, threshold: lastThreshold }
   }
 
-  //% blockId=max30100_getRaw block="MAX30100 raw" weight=95
+  //% blockId=max30100_getRaw block="MAX30100 Raw" weight=95
   export function getRaw(): { ir: number, red: number } {
       return { ir: lastIR, red: lastRED }
   }
 
-  //% blockId=max30100_getRawIR block="MAX30100 raw IR" blockHidden=true
+  //% blockId=max30100_getRawIR block="MAX30100 Raw IR" blockHidden=true
   export function getRawIR(): number { return lastIR }
 
-  //% blockId=max30100_getRawRED block="MAX30100 raw RED" blockHidden=true
+  //% blockId=max30100_getRawRED block="MAX30100 Raw RED" blockHidden=true
   export function getRawRED(): number { return lastRED }
 
-  //% blockId=max30100_getIds block="MAX30100 get IDs" blockHidden=true
+  //% blockId=max30100_getIds block="MAX30100 Get IDs" blockHidden=true
   //% weight=10
   export function getIds(): { partId: number, revisionId: number } {
       const part = readReg(REG_PART_ID)
@@ -378,14 +378,14 @@ namespace max30100 {
       return { partId: part, revisionId: rev }
   }
 
-  //% blockId=max30100_setLedsCurrent block="MAX30100 set LED currents IR %ir RED %red" blockHidden=true
+  //% blockId=max30100_setLedsCurrent block="MAX30100 Set LED currents IR %ir RED %red" blockHidden=true
   //% ir.defl=LedCurrent.mA50
   //% red.defl=LedCurrent.mA50
   export function setLedsCurrent(ir: LedCurrent, red: LedCurrent) {
       writeReg(REG_LED_CONFIG, ((red & 0x0F) << 4) | (ir & 0x0F))
   }
 
-  //% blockId=max30100_setSamplingRate block="MAX30100 set sampling rate %rate" blockHidden=true
+  //% blockId=max30100_setSamplingRate block="MAX30100 Set sampling rate %rate" blockHidden=true
   //% rate.defl=SampleRate.SR100
   export function setSamplingRate(rate: SampleRate) {
       const prev = readReg(REG_SPO2_CONFIG)
@@ -393,7 +393,7 @@ namespace max30100 {
       writeReg(REG_SPO2_CONFIG, next)
   }
 
-  //% blockId=max30100_setPulseWidth block="MAX30100 set pulse width %pw" blockHidden=true
+  //% blockId=max30100_setPulseWidth block="MAX30100 Set pulse width %pw" blockHidden=true
   //% pw.defl=PulseWidth.PW1600uS
   export function setPulseWidth(pw: PulseWidth) {
       const prev = readReg(REG_SPO2_CONFIG)
@@ -401,18 +401,18 @@ namespace max30100 {
       writeReg(REG_SPO2_CONFIG, next)
   }
 
-  //% blockId=max30100_shutdown block="MAX30100 shutdown" blockHidden=true
+  //% blockId=max30100_shutdown block="Shutdown MAX30100" blockHidden=true
   export function shutdown() {
       const prev = readReg(REG_MODE_CONFIG)
       writeReg(REG_MODE_CONFIG, prev | 0x80)
   }
 
-  //% blockId=max30100_resume block="MAX30100 resume" blockHidden=true
+  //% blockId=max30100_resume block="Resume MAX30100" blockHidden=true
   export function resume() {
       const prev = readReg(REG_MODE_CONFIG)
       writeReg(REG_MODE_CONFIG, prev & ~0x80)
   }
 
-  //% blockId=max30100_stop block="stop MAX30100" weight=80
+  //% blockId=max30100_stop block="Stop MAX30100" weight=99
   export function stop() { _running = false }
 }
