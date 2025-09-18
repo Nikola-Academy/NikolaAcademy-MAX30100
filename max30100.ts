@@ -47,11 +47,11 @@ namespace max30100 {
       readReg(REG_INT_STATUS)
   }
 
+  // Minimal reset polling; device clears RESET quickly
   function waitResetClear(timeoutMs: number): boolean {
       const start = control.millis()
       while (control.millis() - start < timeoutMs) {
           if ((readReg(REG_MODE_CONFIG) & 0x40) === 0) return true
-          basic.pause(1)
       }
       return false
   }
@@ -82,18 +82,7 @@ namespace max30100 {
       return out
   }
 
-  function primeSamples(maxWaitMs: number) {
-      const start = control.millis()
-      while (control.millis() - start < maxWaitMs) {
-          const n = samplesAvailable()
-          if (n > 0) {
-              // read and drop once to advance RD_PTR and unblock stream
-              readFIFOBurst(n)
-              return
-          }
-          basic.pause(1)
-      }
-  }
+  // No priming needed in the regular stable version
 
   let _onSample: (ir: number, red: number) => void = null
   let _running = false
@@ -104,16 +93,14 @@ namespace max30100 {
   //% pw.defl=PulseWidth.PW1600uS
   //% ir.defl=LedCurrent.mA50
   //% red.defl=LedCurrent.mA50
+  //% blockHidden=true
   export function begin(rate: SampleRate = SampleRate.SR100, pw: PulseWidth = PulseWidth.PW1600uS, ir: LedCurrent = LedCurrent.mA50, red: LedCurrent = LedCurrent.mA50) {
       writeReg(REG_MODE_CONFIG, 0x40) // reset
-      basic.pause(10)
-      waitResetClear(50)
+      basic.pause(5)
+      waitResetClear(20)
       writeReg(REG_INT_ENABLE, 0x00) // disable all interrupts
       clearInterrupts()
       resetFifo()
-      // Enter HR-only first (mirrors Arduino init sequence)
-      writeReg(REG_MODE_CONFIG, MODE_HR)
-      basic.pause(2)
       let spo2cfg = 0
       spo2cfg |= 0x40 // high-res
       spo2cfg |= (rate & 0x07) << 2
@@ -122,44 +109,38 @@ namespace max30100 {
       // Datasheet/Arduino mapping: upper nibble = RED, lower nibble = IR
       writeReg(REG_LED_CONFIG, ((red & 0x0F) << 4) | (ir & 0x0F))
       writeReg(REG_MODE_CONFIG, MODE_SPO2)
-      // Prime the FIFO to shorten time-to-first-sample
-      primeSamples(20)
       _lastSampleMs = control.millis()
   }
 
-  //% blockId=max30100_onSample block="on MAX30100 sample"
+  //% blockId=max30100_start block="start MAX30100" weight=100
+  export function start() {
+      begin(SampleRate.SR100, PulseWidth.PW1600uS, LedCurrent.mA50, LedCurrent.mA27_1)
+  }
+
+  //% blockId=max30100_onSample block="on MAX30100 sample" weight=90
   export function onSample(handler: (ir: number, red: number) => void) {
       _onSample = handler
       if (!_running) {
           _running = true
           control.inBackground(() => {
-              let firstSeen = false
               while (_running) {
                   const n = samplesAvailable()
                   if (n > 0) {
                       const samples = readFIFOBurst(n)
                       for (let i = 0; i < samples.length; i++) {
                           const s = samples[i]
-                          if (!firstSeen && (s.ir > 0 || s.red > 0)) firstSeen = true
                           _lastSampleMs = control.millis()
                           if (_onSample) _onSample(s.ir, s.red)
                       }
                   } else {
-                      basic.pause(firstSeen ? 5 : 1)
-                  }
-                  // auto-recover if stalled for > 500ms
-                  if (control.millis() - _lastSampleMs > 500) {
-                      resetFifo()
-                      writeReg(REG_MODE_CONFIG, MODE_SPO2)
-                      basic.pause(2)
-                      _lastSampleMs = control.millis()
+                      basic.pause(5)
                   }
               }
           })
       }
   }
 
-  //% blockId=max30100_getIds block="MAX30100 get IDs"
+  //% blockId=max30100_getIds block="MAX30100 get IDs" blockHidden=true
   //% weight=10
   export function getIds(): { partId: number, revisionId: number } {
       const part = readReg(REG_PART_ID)
@@ -167,14 +148,14 @@ namespace max30100 {
       return { partId: part, revisionId: rev }
   }
 
-  //% blockId=max30100_setLedsCurrent block="MAX30100 set LED currents IR %ir RED %red"
+  //% blockId=max30100_setLedsCurrent block="MAX30100 set LED currents IR %ir RED %red" blockHidden=true
   //% ir.defl=LedCurrent.mA50
   //% red.defl=LedCurrent.mA50
   export function setLedsCurrent(ir: LedCurrent, red: LedCurrent) {
       writeReg(REG_LED_CONFIG, ((red & 0x0F) << 4) | (ir & 0x0F))
   }
 
-  //% blockId=max30100_setSamplingRate block="MAX30100 set sampling rate %rate"
+  //% blockId=max30100_setSamplingRate block="MAX30100 set sampling rate %rate" blockHidden=true
   //% rate.defl=SampleRate.SR100
   export function setSamplingRate(rate: SampleRate) {
       const prev = readReg(REG_SPO2_CONFIG)
@@ -182,7 +163,7 @@ namespace max30100 {
       writeReg(REG_SPO2_CONFIG, next)
   }
 
-  //% blockId=max30100_setPulseWidth block="MAX30100 set pulse width %pw"
+  //% blockId=max30100_setPulseWidth block="MAX30100 set pulse width %pw" blockHidden=true
   //% pw.defl=PulseWidth.PW1600uS
   export function setPulseWidth(pw: PulseWidth) {
       const prev = readReg(REG_SPO2_CONFIG)
@@ -190,18 +171,18 @@ namespace max30100 {
       writeReg(REG_SPO2_CONFIG, next)
   }
 
-  //% blockId=max30100_shutdown block="MAX30100 shutdown"
+  //% blockId=max30100_shutdown block="MAX30100 shutdown" blockHidden=true
   export function shutdown() {
       const prev = readReg(REG_MODE_CONFIG)
       writeReg(REG_MODE_CONFIG, prev | 0x80)
   }
 
-  //% blockId=max30100_resume block="MAX30100 resume"
+  //% blockId=max30100_resume block="MAX30100 resume" blockHidden=true
   export function resume() {
       const prev = readReg(REG_MODE_CONFIG)
       writeReg(REG_MODE_CONFIG, prev & ~0x80)
   }
 
-  //% blockId=max30100_stop block="stop MAX30100"
+  //% blockId=max30100_stop block="stop MAX30100" weight=80
   export function stop() { _running = false }
 }
