@@ -24,9 +24,9 @@ namespace max30100 {
   const BEATDETECTOR_INIT_HOLDOFF = 2000
   const BEATDETECTOR_MASKING_HOLDOFF = 200
   const BEATDETECTOR_BPFILTER_ALPHA = 0.6
-  const BEATDETECTOR_MIN_THRESHOLD = 20
-  const BEATDETECTOR_MAX_THRESHOLD = 800
-  const BEATDETECTOR_STEP_RESILIENCY = 30
+  let BEATDETECTOR_MIN_THRESHOLD = 20
+  let BEATDETECTOR_MAX_THRESHOLD = 800
+  let BEATDETECTOR_STEP_RESILIENCY = 30
   const BEATDETECTOR_THRESHOLD_FALLOFF_TARGET = 0.3
   const BEATDETECTOR_THRESHOLD_DECAY_FACTOR = 0.99
   const BEATDETECTOR_SAMPLES_PERIOD = 10
@@ -201,6 +201,7 @@ namespace max30100 {
               this.threshold *= BEATDETECTOR_THRESHOLD_DECAY_FACTOR
           }
           if (this.threshold < BEATDETECTOR_MIN_THRESHOLD) this.threshold = BEATDETECTOR_MIN_THRESHOLD
+          if (this.threshold > BEATDETECTOR_MAX_THRESHOLD) this.threshold = BEATDETECTOR_MAX_THRESHOLD
       }
   }
 
@@ -255,6 +256,8 @@ namespace max30100 {
   let spO2Percent = 0
   let lastFiltered = 0
   let lastThreshold = 0
+  let highSensitivity = false
+  let invertPulse = true // default matches Arduino path: use -irAC
 
   function resetProcessing() {
       beatDetector = new BeatDetector()
@@ -313,7 +316,8 @@ namespace max30100 {
                           // Processing chain similar to Arduino PulseOximeter
                           const irAC = irDCRemover.step(s.ir)
                           const redAC = redDCRemover.step(s.red)
-                          const filtered = lpf.step(-irAC)
+                          const rawPulse = invertPulse ? -irAC : irAC
+                          const filtered = lpf.step(rawPulse)
                           const beat = beatDetector.addSample(filtered)
                           lastFiltered = filtered
                           lastThreshold = beatDetector.getCurrentThreshold()
