@@ -11,6 +11,10 @@ namespace max30100 {
   const REG_MODE_CONFIG = 0x06
   const REG_SPO2_CONFIG = 0x07
   const REG_LED_CONFIG = 0x09
+  const REG_TEMP_INT = 0x16
+  const REG_TEMP_FRAC = 0x17
+  const REG_REV_ID = 0xFE
+  const REG_PART_ID = 0xFF
 
   const MODE_HR = 0x02
   const MODE_SPO2 = 0x03
@@ -93,6 +97,7 @@ namespace max30100 {
 
   let _onSample: (ir: number, red: number) => void = null
   let _running = false
+  let _lastSampleMs = 0
 
   //% blockId=max30100_begin block="MAX30100 begin at %rate|Hz, pulse %pw|, IR %ir|, RED %red"
   //% rate.defl=SampleRate.SR100
@@ -119,6 +124,7 @@ namespace max30100 {
       writeReg(REG_MODE_CONFIG, MODE_SPO2)
       // Prime the FIFO to shorten time-to-first-sample
       primeSamples(20)
+      _lastSampleMs = control.millis()
   }
 
   //% blockId=max30100_onSample block="on MAX30100 sample"
@@ -135,14 +141,30 @@ namespace max30100 {
                       for (let i = 0; i < samples.length; i++) {
                           const s = samples[i]
                           if (!firstSeen && (s.ir > 0 || s.red > 0)) firstSeen = true
+                          _lastSampleMs = control.millis()
                           if (_onSample) _onSample(s.ir, s.red)
                       }
                   } else {
                       basic.pause(firstSeen ? 5 : 1)
                   }
+                  // auto-recover if stalled for > 500ms
+                  if (control.millis() - _lastSampleMs > 500) {
+                      resetFifo()
+                      writeReg(REG_MODE_CONFIG, MODE_SPO2)
+                      basic.pause(2)
+                      _lastSampleMs = control.millis()
+                  }
               }
           })
       }
+  }
+
+  //% blockId=max30100_getIds block="MAX30100 get IDs"
+  //% weight=10
+  export function getIds(): { partId: number, revisionId: number } {
+      const part = readReg(REG_PART_ID)
+      const rev = readReg(REG_REV_ID)
+      return { partId: part, revisionId: rev }
   }
 
   //% blockId=max30100_stop block="stop MAX30100"
