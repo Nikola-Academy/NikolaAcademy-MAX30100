@@ -167,6 +167,41 @@ namespace max30100 {
       return { partId: part, revisionId: rev }
   }
 
+  //% blockId=max30100_setLedsCurrent block="MAX30100 set LED currents IR %ir RED %red"
+  //% ir.defl=LedCurrent.mA50
+  //% red.defl=LedCurrent.mA50
+  export function setLedsCurrent(ir: LedCurrent, red: LedCurrent) {
+      writeReg(REG_LED_CONFIG, ((red & 0x0F) << 4) | (ir & 0x0F))
+  }
+
+  //% blockId=max30100_setSamplingRate block="MAX30100 set sampling rate %rate"
+  //% rate.defl=SampleRate.SR100
+  export function setSamplingRate(rate: SampleRate) {
+      const prev = readReg(REG_SPO2_CONFIG)
+      const next = (prev & 0xE3) | ((rate & 0x07) << 2)
+      writeReg(REG_SPO2_CONFIG, next)
+  }
+
+  //% blockId=max30100_setPulseWidth block="MAX30100 set pulse width %pw"
+  //% pw.defl=PulseWidth.PW1600uS
+  export function setPulseWidth(pw: PulseWidth) {
+      const prev = readReg(REG_SPO2_CONFIG)
+      const next = (prev & 0xFC) | (pw & 0x03)
+      writeReg(REG_SPO2_CONFIG, next)
+  }
+
+  //% blockId=max30100_shutdown block="MAX30100 shutdown"
+  export function shutdown() {
+      const prev = readReg(REG_MODE_CONFIG)
+      writeReg(REG_MODE_CONFIG, prev | 0x80)
+  }
+
+  //% blockId=max30100_resume block="MAX30100 resume"
+  export function resume() {
+      const prev = readReg(REG_MODE_CONFIG)
+      writeReg(REG_MODE_CONFIG, prev & ~0x80)
+  }
+
   //% blockId=max30100_stop block="stop MAX30100"
   export function stop() { _running = false }
 }
