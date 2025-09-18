@@ -359,21 +359,10 @@ namespace max30100 {
       return { filtered: lastFiltered, threshold: lastThreshold }
   }
 
-  //% blockId=max30100_getRawIR block="MAX30100 Raw IR LED" weight=90
-  export function getRawIR(): { ir: number } {
-      return { ir: lastIR }
-  }
-
-  //% blockId=max30100_getRawRED block="MAX30100 Raw Red LED" weight=89
-  export function getRawRED(): { red: number } {
-    return { red: lastRED }
-}
-
-
-  //% blockId=max30100_getRawIR block="MAX30100 Raw IR" blockHidden=true
+  //% blockId=max30100_getRawIR block="MAX30100 Raw IR LED" blockHidden=true
   export function getRawIR(): number { return lastIR }
 
-  //% blockId=max30100_getRawRED block="MAX30100 Raw RED" blockHidden=true
+  //% blockId=max30100_getRawRED block="MAX30100 Raw RED LED" blockHidden=true
   export function getRawRED(): number { return lastRED }
 
   //% blockId=max30100_getIds block="MAX30100 Get IDs" blockHidden=true
