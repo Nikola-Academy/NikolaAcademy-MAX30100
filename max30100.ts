@@ -55,7 +55,6 @@ namespace max30100 {
   //% ir.defl=LedCurrent.mA11
   //% red.defl=LedCurrent.mA11
   export function begin(rate: SampleRate = SampleRate.SR100, pw: PulseWidth = PulseWidth.PW1600uS, ir: LedCurrent = LedCurrent.mA11, red: LedCurrent = LedCurrent.mA11) {
-      pins.i2cFrequency(400000)
       writeReg(REG_MODE_CONFIG, 0x40) // reset
       basic.pause(10)
       writeReg(REG_INT_ENABLE, 0x00)

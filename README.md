@@ -1,4 +1,4 @@
-## MAX30100 for micro:bit (MakeCode)
+## MAX30100 for micro:bit (MakeCode) By Nikola Academy
 
 MAX30100 Pulse Oximeter driver for BBC micro:bit using MakeCode.  
 Driver initializes the sensor, reads raw IR/RED data from FIFO, and exposes simple blocks and TypeScript APIs.
