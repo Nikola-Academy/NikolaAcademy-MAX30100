@@ -43,6 +43,16 @@ namespace max30100 {
       readReg(REG_INT_STATUS)
   }
 
+  function waitPowerReady(timeoutMs: number): boolean {
+      const start = control.millis()
+      while (control.millis() - start < timeoutMs) {
+          // PWR_RDY bit is bit0 of INT STATUS
+          if (readReg(REG_INT_STATUS) & 0x01) return true
+          basic.pause(1)
+      }
+      return false
+  }
+
   function resetFifo() {
       writeReg(REG_FIFO_WR_PTR, 0x00)
       writeReg(REG_OVF_COUNTER, 0x00)
@@ -80,6 +90,7 @@ namespace max30100 {
   export function begin(rate: SampleRate = SampleRate.SR100, pw: PulseWidth = PulseWidth.PW1600uS, ir: LedCurrent = LedCurrent.mA50, red: LedCurrent = LedCurrent.mA50) {
       writeReg(REG_MODE_CONFIG, 0x40) // reset
       basic.pause(10)
+      waitPowerReady(100)
       writeReg(REG_INT_ENABLE, 0x00) // disable all interrupts
       clearInterrupts()
       resetFifo()
@@ -99,16 +110,18 @@ namespace max30100 {
       if (!_running) {
           _running = true
           control.inBackground(() => {
+              let firstSeen = false
               while (_running) {
                   const n = samplesAvailable()
                   if (n > 0) {
                       const samples = readFIFOBurst(n)
                       for (let i = 0; i < samples.length; i++) {
                           const s = samples[i]
+                          if (!firstSeen && (s.ir > 0 || s.red > 0)) firstSeen = true
                           if (_onSample) _onSample(s.ir, s.red)
                       }
                   } else {
-                      basic.pause(5)
+                      basic.pause(firstSeen ? 5 : 1)
                   }
               }
           })
