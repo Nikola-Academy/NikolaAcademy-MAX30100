@@ -34,7 +34,7 @@ namespace max30100 {
   }
 
   function readReg(reg: number): number {
-      pins.i2cWriteNumber(I2C_ADDR, reg, NumberFormat.UInt8BE)
+      pins.i2cWriteNumber(I2C_ADDR, reg, NumberFormat.UInt8BE, true)
       return pins.i2cReadNumber(I2C_ADDR, NumberFormat.UInt8BE)
   }
 
@@ -66,7 +66,7 @@ namespace max30100 {
 
   function readFIFOBurst(count: number): { ir: number, red: number }[] {
       if (count <= 0) return []
-      pins.i2cWriteNumber(I2C_ADDR, REG_FIFO_DATA, NumberFormat.UInt8BE)
+      pins.i2cWriteNumber(I2C_ADDR, REG_FIFO_DATA, NumberFormat.UInt8BE, true)
       const b = pins.i2cReadBuffer(I2C_ADDR, 4 * count)
       const out: { ir: number, red: number }[] = []
       for (let i = 0; i < count; i++) {
@@ -106,6 +106,9 @@ namespace max30100 {
       writeReg(REG_INT_ENABLE, 0x00) // disable all interrupts
       clearInterrupts()
       resetFifo()
+      // Enter HR-only first (mirrors Arduino init sequence)
+      writeReg(REG_MODE_CONFIG, MODE_HR)
+      basic.pause(2)
       let spo2cfg = 0
       spo2cfg |= 0x40 // high-res
       spo2cfg |= (rate & 0x07) << 2
