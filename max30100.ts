@@ -256,6 +256,8 @@ namespace max30100 {
   let spO2Percent = 0
   let lastFiltered = 0
   let lastThreshold = 0
+  let lastIR = 0
+  let lastRED = 0
   let highSensitivity = false
   let invertPulse = true // default matches Arduino path: use -irAC
 
@@ -293,6 +295,7 @@ namespace max30100 {
       writeReg(REG_MODE_CONFIG, MODE_SPO2)
       _lastSampleMs = control.millis()
       resetProcessing()
+      startBackground()
   }
 
   //% blockId=max30100_start block="start MAX30100" weight=100
@@ -300,41 +303,46 @@ namespace max30100 {
       begin(SampleRate.SR100, PulseWidth.PW1600uS, LedCurrent.mA50, LedCurrent.mA27_1)
   }
 
-  //% blockId=max30100_onSample block="on MAX30100 sample" weight=90
+  //% blockId=max30100_onSample block="on MAX30100 sample ir %ir red %red" draggableParameters="reporter" weight=90
   export function onSample(handler: (ir: number, red: number) => void) {
       _onSample = handler
-      if (!_running) {
-          _running = true
-          control.inBackground(() => {
-              while (_running) {
-                  const n = samplesAvailable()
-                  if (n > 0) {
-                      const samples = readFIFOBurst(n)
-                      for (let i = 0; i < samples.length; i++) {
-                          const s = samples[i]
-                          _lastSampleMs = control.millis()
-                          // Processing chain similar to Arduino PulseOximeter
-                          const irAC = irDCRemover.step(s.ir)
-                          const redAC = redDCRemover.step(s.red)
-                          const rawPulse = invertPulse ? -irAC : irAC
-                          const filtered = lpf.step(rawPulse)
-                          const beat = beatDetector.addSample(filtered)
-                          lastFiltered = filtered
-                          lastThreshold = beatDetector.getCurrentThreshold()
-                          const rate = beatDetector.getRate()
-                          if (rate > 0) heartRateBpm = rate
-                          spO2calculator.update(irAC, redAC, beat)
-                          const spo2 = spO2calculator.getSpO2()
-                          if (spo2 > 0) spO2Percent = spo2
-                          if (beat && _onBeat) _onBeat()
-                          if (_onSample) _onSample(s.ir, s.red)
-                      }
-                  } else {
-                      basic.pause(5)
+      startBackground()
+  }
+
+  function startBackground() {
+      if (_running) return
+      _running = true
+      control.inBackground(() => {
+          while (_running) {
+              const n = samplesAvailable()
+              if (n > 0) {
+                  const samples = readFIFOBurst(n)
+                  for (let i = 0; i < samples.length; i++) {
+                      const s = samples[i]
+                      lastIR = s.ir
+                      lastRED = s.red
+                      _lastSampleMs = control.millis()
+                      // Processing chain similar to Arduino PulseOximeter
+                      const irAC = irDCRemover.step(s.ir)
+                      const redAC = redDCRemover.step(s.red)
+                      const rawPulse = invertPulse ? -irAC : irAC
+                      const filtered = lpf.step(rawPulse)
+                      const beat = beatDetector.addSample(filtered)
+                      lastFiltered = filtered
+                      lastThreshold = beatDetector.getCurrentThreshold()
+                      const rate = beatDetector.getRate()
+                      if (rate > 0) heartRateBpm = rate
+                      spO2calculator.update(irAC, redAC, beat)
+                      const spo2 = spO2calculator.getSpO2()
+                      if (spo2 > 0) spO2Percent = spo2
+                      if (beat && _onBeat) _onBeat()
+                      if (_onSample) _onSample(s.ir, s.red)
                   }
+              } else {
+                  basic.pause(5)
               }
-          })
-      }
+          }
+      })
   }
 
   //% blockId=max30100_onBeat block="on MAX30100 beat" weight=85
@@ -350,6 +358,17 @@ namespace max30100 {
   export function getPulseDebug(): { filtered: number, threshold: number } {
       return { filtered: lastFiltered, threshold: lastThreshold }
   }
+
+  //% blockId=max30100_getRaw block="MAX30100 raw" weight=95
+  export function getRaw(): { ir: number, red: number } {
+      return { ir: lastIR, red: lastRED }
+  }
+
+  //% blockId=max30100_getRawIR block="MAX30100 raw IR" blockHidden=true
+  export function getRawIR(): number { return lastIR }
+
+  //% blockId=max30100_getRawRED block="MAX30100 raw RED" blockHidden=true
+  export function getRawRED(): number { return lastRED }
 
   //% blockId=max30100_getIds block="MAX30100 get IDs" blockHidden=true
   //% weight=10
