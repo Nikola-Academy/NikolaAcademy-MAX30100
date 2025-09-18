@@ -38,12 +38,35 @@ namespace max30100 {
       return pins.i2cReadNumber(I2C_ADDR, NumberFormat.UInt8BE)
   }
 
-  function readFIFO(): { ir: number, red: number } {
+  function clearInterrupts() {
+      // Read INT STATUS to clear any pending flags
+      readReg(REG_INT_STATUS)
+  }
+
+  function resetFifo() {
+      writeReg(REG_FIFO_WR_PTR, 0x00)
+      writeReg(REG_OVF_COUNTER, 0x00)
+      writeReg(REG_FIFO_RD_PTR, 0x00)
+  }
+
+  function samplesAvailable(): number {
+      const wr = readReg(REG_FIFO_WR_PTR) & 0x0F
+      const rd = readReg(REG_FIFO_RD_PTR) & 0x0F
+      return (wr - rd) & 0x0F
+  }
+
+  function readFIFOBurst(count: number): { ir: number, red: number }[] {
+      if (count <= 0) return []
       pins.i2cWriteNumber(I2C_ADDR, REG_FIFO_DATA, NumberFormat.UInt8BE)
-      const b = pins.i2cReadBuffer(I2C_ADDR, 4)
-      const ir = (b[0] << 8) | b[1]
-      const red = (b[2] << 8) | b[3]
-      return { ir: ir, red: red }
+      const b = pins.i2cReadBuffer(I2C_ADDR, 4 * count)
+      const out: { ir: number, red: number }[] = []
+      for (let i = 0; i < count; i++) {
+          const base = i * 4
+          const ir = (b[base] << 8) | b[base + 1]
+          const red = (b[base + 2] << 8) | b[base + 3]
+          out.push({ ir: ir, red: red })
+      }
+      return out
   }
 
   let _onSample: (ir: number, red: number) => void = null
@@ -52,21 +75,21 @@ namespace max30100 {
   //% blockId=max30100_begin block="MAX30100 begin at %rate|Hz, pulse %pw|, IR %ir|, RED %red"
   //% rate.defl=SampleRate.SR100
   //% pw.defl=PulseWidth.PW1600uS
-  //% ir.defl=LedCurrent.mA11
-  //% red.defl=LedCurrent.mA11
-  export function begin(rate: SampleRate = SampleRate.SR100, pw: PulseWidth = PulseWidth.PW1600uS, ir: LedCurrent = LedCurrent.mA11, red: LedCurrent = LedCurrent.mA11) {
+  //% ir.defl=LedCurrent.mA50
+  //% red.defl=LedCurrent.mA50
+  export function begin(rate: SampleRate = SampleRate.SR100, pw: PulseWidth = PulseWidth.PW1600uS, ir: LedCurrent = LedCurrent.mA50, red: LedCurrent = LedCurrent.mA50) {
       writeReg(REG_MODE_CONFIG, 0x40) // reset
       basic.pause(10)
-      writeReg(REG_INT_ENABLE, 0x00)
-      writeReg(REG_FIFO_WR_PTR, 0x00)
-      writeReg(REG_OVF_COUNTER, 0x00)
-      writeReg(REG_FIFO_RD_PTR, 0x00)
+      writeReg(REG_INT_ENABLE, 0x00) // disable all interrupts
+      clearInterrupts()
+      resetFifo()
       let spo2cfg = 0
       spo2cfg |= 0x40 // high-res
       spo2cfg |= (rate & 0x07) << 2
       spo2cfg |= (pw & 0x03)
       writeReg(REG_SPO2_CONFIG, spo2cfg)
-      writeReg(REG_LED_CONFIG, ((ir & 0x0F) << 4) | (red & 0x0F))
+      // Datasheet/Arduino mapping: upper nibble = RED, lower nibble = IR
+      writeReg(REG_LED_CONFIG, ((red & 0x0F) << 4) | (ir & 0x0F))
       writeReg(REG_MODE_CONFIG, MODE_SPO2)
   }
 
@@ -77,9 +100,16 @@ namespace max30100 {
           _running = true
           control.inBackground(() => {
               while (_running) {
-                  const s = readFIFO()
-                  if (_onSample) _onSample(s.ir, s.red)
-                  basic.pause(10)
+                  const n = samplesAvailable()
+                  if (n > 0) {
+                      const samples = readFIFOBurst(n)
+                      for (let i = 0; i < samples.length; i++) {
+                          const s = samples[i]
+                          if (_onSample) _onSample(s.ir, s.red)
+                      }
+                  } else {
+                      basic.pause(5)
+                  }
               }
           })
       }
