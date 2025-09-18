@@ -303,7 +303,7 @@ namespace max30100 {
       begin(SampleRate.SR100, PulseWidth.PW1600uS, LedCurrent.mA50, LedCurrent.mA27_1)
   }
 
-  //% blockId=max30100_onSample block="Get MAX30100 Raw Values %ir %red" draggableParameters="reporter" weight=90
+  //% blockId=max30100_onSample block="Get MAX30100 Raw Values %ir %red" draggableParameters="reporter" weight=90 blockHidden=true
   export function onSample(handler: (ir: number, red: number) => void) {
       _onSample = handler
       startBackground()
@@ -359,10 +359,16 @@ namespace max30100 {
       return { filtered: lastFiltered, threshold: lastThreshold }
   }
 
-  //% blockId=max30100_getRaw block="MAX30100 Raw" weight=95
-  export function getRaw(): { ir: number, red: number } {
-      return { ir: lastIR, red: lastRED }
+  //% blockId=max30100_getRawIR block="MAX30100 Raw IR LED" weight=90
+  export function getRawIR(): { ir: number } {
+      return { ir: lastIR }
   }
+
+  //% blockId=max30100_getRawRED block="MAX30100 Raw Red LED" weight=89
+  export function getRawRED(): { red: number } {
+    return { red: lastRED }
+}
+
 
   //% blockId=max30100_getRawIR block="MAX30100 Raw IR" blockHidden=true
   export function getRawIR(): number { return lastIR }
